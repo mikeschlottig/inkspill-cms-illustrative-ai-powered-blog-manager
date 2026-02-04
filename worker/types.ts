@@ -19,6 +19,9 @@ export interface ChatState {
   isProcessing: boolean;
   model: string;
   streamingMessage?: string;
+  // CMS Extension
+  title: string;
+  content: string;
 }
 export interface SessionInfo {
   id: string;

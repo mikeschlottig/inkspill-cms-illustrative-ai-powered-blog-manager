@@ -1,65 +1,138 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Sparkles, Send } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Settings as SettingsIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { MuseSidebar } from '@/components/MuseSidebar';
+import { getPostContent, updatePostContent, updatePostMetadata } from '@/lib/cms-api';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
+import { debounce } from 'lodash-es';
 export function EditorPage() {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (id) loadData();
+  }, [id]);
+  const loadData = async () => {
+    setLoading(true);
+    const data = await getPostContent(id!);
+    if (data) {
+      setTitle(data.title || '');
+      setContent(data.content || '');
+    }
+    setLoading(false);
+  };
+  const debouncedSave = useCallback(
+    debounce(async (t: string, c: string) => {
+      if (!id) return;
+      setSaving(true);
+      await updatePostContent(id, { title: t, content: c });
+      // Also update the AppController title for the dashboard index
+      await updatePostMetadata(id, { title: t });
+      setSaving(false);
+    }, 1000),
+    [id]
+  );
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setTitle(val);
+    debouncedSave(val, content);
+  };
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setContent(val);
+    debouncedSave(title, val);
+  };
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-10 h-10 animate-spin text-accent" />
+      </div>
+    );
+  }
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        <header className="p-4 border-b-2 border-black flex items-center justify-between bg-white z-10">
+    <div className="min-h-screen bg-background flex overflow-hidden">
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <header className="p-4 border-b-2 border-black dark:border-white flex items-center justify-between bg-white dark:bg-black z-10 shrink-0">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="sketch-button">
               <ArrowLeft className="w-5 h-5" />
             </Button>
-            <h2 className="text-2xl font-hand">The Canvas</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-2xl font-hand">The Canvas</h2>
+              {saving && <span className="text-[10px] uppercase font-bold text-muted-foreground animate-pulse">Autosaving...</span>}
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" className="sketch-button bg-white">Save Draft</Button>
-            <Button className="sketch-button bg-secondary text-white font-bold">Publish</Button>
-          </div>
-        </header>
-        <main className="flex-1 p-8 max-w-4xl mx-auto w-full space-y-6">
-          <Input 
-            value={title} 
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Sketch Title..." 
-            className="text-4xl font-hand h-auto border-none focus-visible:ring-0 bg-transparent px-0 placeholder:opacity-30"
-          />
-          <Textarea 
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Once upon a time in a digital sketchbook..."
-            className="flex-1 min-h-[500px] text-lg leading-relaxed border-none focus-visible:ring-0 bg-transparent px-0 resize-none placeholder:opacity-20"
-          />
-        </main>
-      </div>
-      {/* The Muse Sidebar (Placeholder) */}
-      <aside className="w-80 border-l-2 border-black bg-accent/5 flex flex-col">
-        <div className="p-4 border-b-2 border-black flex items-center gap-2 bg-white">
-          <Sparkles className="w-5 h-5 text-accent" />
-          <h3 className="font-hand text-xl">The Muse</h3>
-        </div>
-        <div className="flex-1 p-4 overflow-y-auto space-y-4">
-          <div className="bg-white p-3 rounded-lg sketch-border sketch-shadow-sm text-sm italic">
-            "Every great story begins with a single drop of ink. How can I help you refine this sketch?"
-          </div>
-        </div>
-        <div className="p-4 bg-white border-t-2 border-black">
-          <div className="relative">
-            <Input placeholder="Ask the Muse..." className="pr-10 sketch-border" />
-            <Button size="icon" variant="ghost" className="absolute right-1 top-1/2 -translate-y-1/2">
-              <Send className="w-4 h-4" />
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" className="sketch-button bg-white dark:bg-black">
+                  <SettingsIcon className="w-4 h-4 mr-2" />
+                  Meta
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="sketch-border">
+                <SheetHeader>
+                  <SheetTitle className="font-hand text-2xl">Sketch Metadata</SheetTitle>
+                </SheetHeader>
+                <div className="space-y-6 py-8">
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <Select onValueChange={(val) => updatePostMetadata(id!, { status: val as any })}>
+                      <SelectTrigger className="sketch-border">
+                        <SelectValue placeholder="Select Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="published">Published</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Tags (Comma separated)</Label>
+                    <Input 
+                      placeholder="poetry, tech, thoughts" 
+                      className="sketch-border"
+                      onBlur={(e) => updatePostMetadata(id!, { tags: e.target.value.split(',').map(t => t.trim()) })}
+                    />
+                  </div>
+                  <Button className="w-full sketch-button bg-accent text-accent-foreground font-bold" onClick={() => toast.success("Metadata updated")}>
+                    Save Changes
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
+            <Button className="sketch-button bg-secondary text-white font-bold" onClick={() => toast.info("Publishing is available in the Metadata sheet.")}>
+              Publish
             </Button>
           </div>
-        </div>
-      </aside>
+        </header>
+        <main className="flex-1 overflow-y-auto p-8 bg-[#fdfbf7] dark:bg-black/20">
+          <div className="max-w-4xl mx-auto w-full space-y-6">
+            <Input
+              value={title}
+              onChange={handleTitleChange}
+              placeholder="Sketch Title..."
+              className="text-5xl font-hand h-auto border-none focus-visible:ring-0 bg-transparent px-0 placeholder:opacity-30 dark:text-white"
+            />
+            <Textarea
+              value={content}
+              onChange={handleContentChange}
+              placeholder="Once upon a time in a digital sketchbook..."
+              className="flex-1 min-h-[70vh] text-xl leading-relaxed border-none focus-visible:ring-0 bg-transparent px-0 resize-none placeholder:opacity-20 dark:text-white/80"
+            />
+          </div>
+        </main>
+      </div>
+      {id && <MuseSidebar sessionId={id} />}
     </div>
   );
 }

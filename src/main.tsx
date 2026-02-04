@@ -13,6 +13,7 @@ import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import '@/index.css'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { EditorPage } from '@/pages/EditorPage'
+import { ToolboxPage } from '@/pages/ToolboxPage'
 const queryClient = new QueryClient();
 const router = createBrowserRouter([
   {
@@ -27,7 +28,7 @@ const router = createBrowserRouter([
   },
   {
     path: "/settings",
-    element: <div className="p-8"><h1 className="text-4xl font-hand">The Toolbox (Coming Soon)</h1></div>,
+    element: <ToolboxPage />,
     errorElement: <RouteErrorBoundary />,
   }
 ]);

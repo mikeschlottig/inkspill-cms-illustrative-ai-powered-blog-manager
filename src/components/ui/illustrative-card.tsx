@@ -37,3 +37,13 @@ export function IllustrativeFooter({ className, children, ...props }: React.HTML
     </div>
   )
 }
+export function IllustrativeSection({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <section 
+      className={cn("py-8 md:py-10 lg:py-12 border-b-2 border-black/5 dark:border-white/5 last:border-0", className)} 
+      {...props}
+    >
+      {children}
+    </section>
+  )
+}
