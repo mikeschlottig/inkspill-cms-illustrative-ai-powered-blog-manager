@@ -29,19 +29,19 @@ export class ChatAgent extends Agent<Env, ChatState> {
         return Response.json({ success: true, data: this.state });
       }
       if (method === 'POST' && url.pathname === '/chat') {
-        return this.handleChatMessage(await request.json());
+        const body = await request.json() as { message: string; model?: string; stream?: boolean };
+        return this.handleChatMessage(body);
       }
       if (method === 'DELETE' && url.pathname === '/clear') {
         this.setState({ ...this.state, messages: [] });
         return Response.json({ success: true, data: this.state });
       }
       if (method === 'POST' && url.pathname === '/model') {
-        const { model } = await request.json();
-        this.setState({ ...this.state, model });
-        this.chatHandler?.updateModel(model);
+        const body = await request.json() as { model: string };
+        this.setState({ ...this.state, model: body.model });
+        this.chatHandler?.updateModel(body.model);
         return Response.json({ success: true, data: this.state });
       }
-      // CMS Extensions: Document Management
       if (method === 'GET' && url.pathname === '/document') {
         return Response.json({
           success: true,
@@ -49,7 +49,7 @@ export class ChatAgent extends Agent<Env, ChatState> {
         });
       }
       if (method === 'POST' && url.pathname === '/document') {
-        const body = await request.json();
+        const body = await request.json() as { title?: string; content?: string };
         this.setState({
           ...this.state,
           title: body.title ?? this.state.title,
@@ -80,13 +80,20 @@ export class ChatAgent extends Agent<Env, ChatState> {
         (async () => {
           try {
             this.setState({ ...this.state, streamingMessage: '' });
-            const response = await this.chatHandler!.processMessage(message, this.state.messages, (chunk: string) => {
-              this.setState({ ...this.state, streamingMessage: (this.state.streamingMessage || '') + chunk });
-              writer.write(encoder.encode(chunk));
-            });
+            const response = await this.chatHandler!.processMessage(
+              message, 
+              this.state.messages, 
+              this.state.title,
+              this.state.content,
+              (chunk: string) => {
+                this.setState({ ...this.state, streamingMessage: (this.state.streamingMessage || '') + chunk });
+                writer.write(encoder.encode(chunk));
+              }
+            );
             const assistantMessage = createMessage('assistant', response.content, response.toolCalls);
             this.setState({ ...this.state, messages: [...this.state.messages, assistantMessage], isProcessing: false, streamingMessage: '' });
           } catch (e) {
+            console.error('Stream processing inner error:', e);
             writer.write(encoder.encode('Error processing stream.'));
           } finally {
             writer.close();
@@ -94,11 +101,17 @@ export class ChatAgent extends Agent<Env, ChatState> {
         })();
         return createStreamResponse(readable);
       }
-      const response = await this.chatHandler!.processMessage(message, this.state.messages);
+      const response = await this.chatHandler!.processMessage(
+        message, 
+        this.state.messages,
+        this.state.title,
+        this.state.content
+      );
       const assistantMessage = createMessage('assistant', response.content, response.toolCalls);
       this.setState({ ...this.state, messages: [...this.state.messages, assistantMessage], isProcessing: false });
       return Response.json({ success: true, data: this.state });
     } catch (error) {
+      console.error('Chat handling error:', error);
       this.setState({ ...this.state, isProcessing: false });
       return Response.json({ success: false, error: API_RESPONSES.PROCESSING_ERROR }, { status: 500 });
     }

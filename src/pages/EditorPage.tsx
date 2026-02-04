@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Loader2, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, Settings as SettingsIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,7 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { debounce } from 'lodash-es';
+import { debounce } from '@/lib/utils';
 export function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -18,38 +18,54 @@ export function EditorPage() {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Refs to avoid stale closure issues in debounced function
+  const currentTitleRef = useRef(title);
+  const currentContentRef = useRef(content);
   useEffect(() => {
-    if (id) loadData();
-  }, [id]);
-  const loadData = async () => {
+    currentTitleRef.current = title;
+    currentContentRef.current = content;
+  }, [title, content]);
+  const loadData = useCallback(async () => {
+    if (!id) return;
     setLoading(true);
-    const data = await getPostContent(id!);
-    if (data) {
-      setTitle(data.title || '');
-      setContent(data.content || '');
+    try {
+      const data = await getPostContent(id);
+      if (data) {
+        setTitle(data.title || '');
+        setContent(data.content || '');
+      }
+    } catch (err) {
+      toast.error("Failed to load sketch content");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
-  const debouncedSave = useCallback(
-    debounce(async (t: string, c: string) => {
-      if (!id) return;
-      setSaving(true);
+  }, [id]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+  const saveAction = useCallback(async (t: string, c: string) => {
+    if (!id) return;
+    setSaving(true);
+    try {
       await updatePostContent(id, { title: t, content: c });
-      // Also update the AppController title for the dashboard index
       await updatePostMetadata(id, { title: t });
+    } catch (err) {
+      console.error("Save error:", err);
+    } finally {
       setSaving(false);
-    }, 1000),
-    [id]
-  );
+    }
+  }, [id]);
+  // Using ref-wrapped debounce to prevent re-creation on every render
+  const debouncedSave = useRef(debounce(saveAction, 1000)).current;
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setTitle(val);
-    debouncedSave(val, content);
+    debouncedSave(val, currentContentRef.current);
   };
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setContent(val);
-    debouncedSave(title, val);
+    debouncedSave(currentTitleRef.current, val);
   };
   if (loading) {
     return (
@@ -68,7 +84,11 @@ export function EditorPage() {
             </Button>
             <div className="flex items-center gap-2">
               <h2 className="text-2xl font-hand">The Canvas</h2>
-              {saving && <span className="text-[10px] uppercase font-bold text-muted-foreground animate-pulse">Autosaving...</span>}
+              {saving && (
+                <span className="text-[10px] uppercase font-bold text-muted-foreground animate-pulse ml-2">
+                  Saving...
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -105,12 +125,12 @@ export function EditorPage() {
                     />
                   </div>
                   <Button className="w-full sketch-button bg-accent text-accent-foreground font-bold" onClick={() => toast.success("Metadata updated")}>
-                    Save Changes
+                    Confirm Changes
                   </Button>
                 </div>
               </SheetContent>
             </Sheet>
-            <Button className="sketch-button bg-secondary text-white font-bold" onClick={() => toast.info("Publishing is available in the Metadata sheet.")}>
+            <Button className="sketch-button bg-secondary text-white font-bold" onClick={() => toast.info("Publishing interface coming soon.")}>
               Publish
             </Button>
           </div>
@@ -123,6 +143,7 @@ export function EditorPage() {
               placeholder="Sketch Title..."
               className="text-5xl font-hand h-auto border-none focus-visible:ring-0 bg-transparent px-0 placeholder:opacity-30 dark:text-white"
             />
+            <div className="w-full h-[1px] bg-black/5 dark:bg-white/5" />
             <Textarea
               value={content}
               onChange={handleContentChange}
