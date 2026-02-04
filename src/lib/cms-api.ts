@@ -29,17 +29,3 @@ export async function deletePost(sessionId: string): Promise<boolean> {
   const result = await response.json();
   return result.success;
 }
-export async function getPostContent(sessionId: string): Promise<{ title: string; content: string } | null> {
-  const response = await fetch(`/api/chat/${sessionId}/document`);
-  const result = await response.json();
-  return result.success ? result.data : null;
-}
-export async function updatePostContent(sessionId: string, data: { title?: string; content?: string }): Promise<boolean> {
-  const response = await fetch(`/api/chat/${sessionId}/document`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  const result = await response.json();
-  return result.success;
-}
