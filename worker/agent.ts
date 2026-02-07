@@ -3,15 +3,13 @@ import type { Env } from './core-utils';
 import type { ChatState } from './types';
 import { ChatHandler } from './chat';
 import { API_RESPONSES } from './config';
-import { createMessage, createStreamResponse, createEncoder } from './utils';
+import { createMessage, createStreamResponse, createEncoder, delay } from './utils';
 const STORAGE_DOC_TITLE_KEY = 'document_title';
 const STORAGE_DOC_CONTENT_KEY = 'document_content';
 export class ChatAgent extends Agent<Env, ChatState> {
-  // `agents` wraps Durable Objects; declare `ctx` so we can use storage explicitly (persistence across restarts).
-  declare ctx: DurableObjectState;
   private chatHandler?: ChatHandler;
-  private docPersistTimeout: ReturnType<typeof setTimeout> | null = null;
   private pendingDocPersist: { title: string; content: string } | null = null;
+  private docPersistSeq = 0;
   initialState: ChatState = {
     messages: [],
     sessionId: crypto.randomUUID(),
@@ -22,7 +20,7 @@ export class ChatAgent extends Agent<Env, ChatState> {
   };
   async onStart(): Promise<void> {
     this.chatHandler = new ChatHandler(this.env.CF_AI_BASE_URL, this.env.CF_AI_API_KEY, this.state.model);
-    // Load persisted document fields (database-grade durability via DO storage keys).
+    // Load persisted document fields safely (storage.get may return undefined).
     try {
       const [storedTitle, storedContent] = await Promise.all([
         this.ctx.storage.get<string>(STORAGE_DOC_TITLE_KEY),
@@ -66,14 +64,14 @@ export class ChatAgent extends Agent<Env, ChatState> {
       }
       if (method === 'POST' && url.pathname === '/document') {
         const body = (await request.json()) as { title?: string; content?: string };
-        const nextTitle = body.title ?? this.state.title;
-        const nextContent = body.content ?? this.state.content;
+        const nextTitle = typeof body.title === 'string' ? body.title : this.state.title;
+        const nextContent = typeof body.content === 'string' ? body.content : this.state.content;
         this.setState({
           ...this.state,
           title: nextTitle,
           content: nextContent,
         });
-        // Persist to DO storage with a debounce to reduce write pressure while preserving durability.
+        // Persist with a debounce-like background task guarded by a sequence.
         this.scheduleDocPersist(nextTitle, nextContent);
         return Response.json({ success: true });
       }
@@ -85,33 +83,41 @@ export class ChatAgent extends Agent<Env, ChatState> {
   }
   private scheduleDocPersist(title: string, content: string): void {
     this.pendingDocPersist = { title, content };
-    if (this.docPersistTimeout) clearTimeout(this.docPersistTimeout);
-    this.docPersistTimeout = setTimeout(() => {
-      const payload = this.pendingDocPersist;
-      this.pendingDocPersist = null;
-      this.docPersistTimeout = null;
-      if (!payload) return;
-      this.ctx.waitUntil(
-        (async () => {
-          try {
-            await this.ctx.storage.put(STORAGE_DOC_TITLE_KEY, payload.title);
-            await this.ctx.storage.put(STORAGE_DOC_CONTENT_KEY, payload.content);
-          } catch (error) {
-            console.error('Failed to persist document fields:', error);
-          }
-        })()
-      );
-    }, 700);
+    const seq = ++this.docPersistSeq;
+    // Use waitUntil so the DO can finish the storage work even after the request completes.
+    this.ctx.waitUntil(
+      (async () => {
+        try {
+          await delay(700);
+          if (seq !== this.docPersistSeq) return; // superseded by a newer write
+          const payload = this.pendingDocPersist;
+          if (!payload) return;
+          this.pendingDocPersist = null;
+          await Promise.all([
+            this.ctx.storage.put(STORAGE_DOC_TITLE_KEY, payload.title),
+            this.ctx.storage.put(STORAGE_DOC_CONTENT_KEY, payload.content),
+          ]);
+        } catch (error) {
+          console.error('Failed to persist document fields:', error);
+        }
+      })()
+    );
   }
   private async handleChatMessage(body: { message: string; model?: string; stream?: boolean }): Promise<Response> {
     const { message, model, stream } = body;
-    if (!message?.trim()) return Response.json({ success: false, error: API_RESPONSES.MISSING_MESSAGE }, { status: 400 });
+    if (!message?.trim()) {
+      return Response.json({ success: false, error: API_RESPONSES.MISSING_MESSAGE }, { status: 400 });
+    }
     if (model && model !== this.state.model) {
       this.setState({ ...this.state, model });
       this.chatHandler?.updateModel(model);
     }
     const userMessage = createMessage('user', message.trim());
-    this.setState({ ...this.state, messages: [...this.state.messages, userMessage], isProcessing: true });
+    this.setState({
+      ...this.state,
+      messages: [...this.state.messages, userMessage],
+      isProcessing: true,
+    });
     try {
       if (stream) {
         const { readable, writable } = new TransformStream();
@@ -119,14 +125,18 @@ export class ChatAgent extends Agent<Env, ChatState> {
         const encoder = createEncoder();
         (async () => {
           try {
+            if (!this.chatHandler) throw new Error('Chat handler not initialized');
+            let streaming = '';
             this.setState({ ...this.state, streamingMessage: '' });
-            const response = await this.chatHandler!.processMessage(
+            const response = await this.chatHandler.processMessage(
               message,
               this.state.messages,
               this.state.title,
               this.state.content,
               (chunk: string) => {
-                this.setState({ ...this.state, streamingMessage: (this.state.streamingMessage || '') + chunk });
+                streaming += chunk;
+                // Avoid storing large streaming state forever; keep it for UI, cleared on completion.
+                this.setState({ ...this.state, streamingMessage: streaming });
                 writer.write(encoder.encode(chunk));
               }
             );
@@ -139,16 +149,29 @@ export class ChatAgent extends Agent<Env, ChatState> {
             });
           } catch (e) {
             console.error('Stream processing inner error:', e);
-            writer.write(encoder.encode('Error processing stream.'));
+            try {
+              writer.write(encoder.encode('Error processing stream.'));
+            } catch (writeErr) {
+              console.error('Failed to write stream error message:', writeErr);
+            }
           } finally {
-            writer.close();
+            try {
+              writer.close();
+            } catch (closeErr) {
+              console.error('Failed to close stream writer:', closeErr);
+            }
           }
         })();
         return createStreamResponse(readable);
       }
-      const response = await this.chatHandler!.processMessage(message, this.state.messages, this.state.title, this.state.content);
+      if (!this.chatHandler) throw new Error('Chat handler not initialized');
+      const response = await this.chatHandler.processMessage(message, this.state.messages, this.state.title, this.state.content);
       const assistantMessage = createMessage('assistant', response.content, response.toolCalls);
-      this.setState({ ...this.state, messages: [...this.state.messages, assistantMessage], isProcessing: false });
+      this.setState({
+        ...this.state,
+        messages: [...this.state.messages, assistantMessage],
+        isProcessing: false,
+      });
       return Response.json({ success: true, data: this.state });
     } catch (error) {
       console.error('Chat handling error:', error);

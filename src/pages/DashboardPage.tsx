@@ -1,27 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Clock, PenLine, Sparkles, Feather } from 'lucide-react';
+import { Plus, Search, Clock, PenLine, Sparkles, Feather, Info } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { ViewToggle } from '@/components/ViewToggle';
 import { IllustrativeCard, IllustrativeHeader, IllustrativeContent, IllustrativeFooter } from '@/components/ui/illustrative-card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { getPosts, createPost } from '@/lib/cms-api';
 import type { SessionInfo } from '../../worker/types';
-import { format } from 'date-fns';
-import { motion, AnimatePresence } from 'framer-motion';
-import { toast } from 'sonner';
 export function DashboardPage() {
   const [posts, setPosts] = useState<SessionInfo[]>([]);
   const [view, setView] = useState<'grid' | 'table'>('grid');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  useEffect(() => {
-    void loadPosts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const loadPosts = async () => {
     setLoading(true);
     try {
@@ -35,6 +32,10 @@ export function DashboardPage() {
       setLoading(false);
     }
   };
+  useEffect(() => {
+    void loadPosts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const handleNewPost = async () => {
     try {
       const created = await createPost();
@@ -89,43 +90,8 @@ export function DashboardPage() {
             <h1 className="text-6xl md:text-7xl font-hand leading-none">The Sketchbook</h1>
             <p className="text-muted-foreground text-lg italic">"A thousand stories begin in this very inkwell."</p>
           </div>
-          <div className="flex items-center gap-3">
-            <ToggleGroup
-              type="single"
-              value={view}
-              onValueChange={(v) => {
-                if (v === 'grid' || v === 'table') setView(v);
-              }}
-              className="sketch-border sketch-shadow-sm bg-muted rounded-lg p-1"
-              aria-label="Choose archive view"
-            >
-              <ToggleGroupItem
-                value="grid"
-                aria-label="Switch to Gallery View"
-                title="Gallery View"
-                className="h-8 px-3 data-[state=on]:bg-white data-[state=on]:dark:bg-black data-[state=on]:sketch-border data-[state=on]:sketch-shadow-sm hover:bg-accent/50"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <span className="text-sm" aria-hidden="true">
-                    ▦
-                  </span>
-                  <span className="font-bold text-xs">Gallery</span>
-                </span>
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="table"
-                aria-label="Switch to Index View"
-                title="Index View"
-                className="h-8 px-3 data-[state=on]:bg-white data-[state=on]:dark:bg-black data-[state=on]:sketch-border data-[state=on]:sketch-shadow-sm hover:bg-accent/50"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <span className="text-sm" aria-hidden="true">
-                    ≡
-                  </span>
-                  <span className="font-bold text-xs">Index</span>
-                </span>
-              </ToggleGroupItem>
-            </ToggleGroup>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <ViewToggle view={view} onChange={setView} />
             <Button
               onClick={handleNewPost}
               className="sketch-button bg-accent text-accent-foreground font-bold px-8 h-12 text-lg"
@@ -162,7 +128,7 @@ export function DashboardPage() {
                   transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut' }}
                   className="inline-flex"
                 >
-                  <Feather className="w-5 h-5 text-accent" />
+                  <Feather className="w-5 h-5 text-accent" aria-hidden="true" />
                 </motion.span>
                 <div className="space-y-0.5">
                   <div className="font-hand text-xl leading-none">Sorting the pages…</div>
@@ -231,9 +197,7 @@ export function DashboardPage() {
                     title={`Open ${post.title || 'Untitled'} sketch`}
                   >
                     <IllustrativeHeader className="flex justify-between items-start pt-6">
-                      <h3 className="text-2xl font-hand line-clamp-1 group-hover:text-accent transition-colors">
-                        {post.title}
-                      </h3>
+                      <h3 className="text-2xl font-hand line-clamp-1 group-hover:text-accent transition-colors">{post.title}</h3>
                       <Badge
                         variant={post.status === 'published' ? 'default' : 'secondary'}
                         className="sketch-border sketch-shadow-sm text-[10px] uppercase font-bold py-1"
@@ -243,8 +207,7 @@ export function DashboardPage() {
                     </IllustrativeHeader>
                     <IllustrativeContent className="flex-1 min-h-[100px] py-6">
                       <p className="text-sm text-muted-foreground line-clamp-4 leading-relaxed italic">
-                        {post.summary ||
-                          'This page is blank, but it holds the weight of a million possibilities. Click to start writing.'}
+                        {post.summary || 'This page is blank, but it holds the weight of a million possibilities. Click to start writing.'}
                       </p>
                     </IllustrativeContent>
                     <IllustrativeFooter className="py-4">
@@ -326,6 +289,15 @@ export function DashboardPage() {
             </motion.div>
           )}
         </AnimatePresence>
+        <div className="pt-6">
+          <Alert className="sketch-border bg-white/70 dark:bg-black/30">
+            <Info className="h-4 w-4" aria-hidden="true" />
+            <AlertTitle className="font-hand text-xl">AI usage note</AlertTitle>
+            <AlertDescription className="text-sm text-muted-foreground">
+              Although InkSpill has AI capabilities, there is a shared limit on the number of requests that can be made to the AI servers across all user apps in a given time period.
+            </AlertDescription>
+          </Alert>
+        </div>
       </div>
     </AppLayout>
   );
