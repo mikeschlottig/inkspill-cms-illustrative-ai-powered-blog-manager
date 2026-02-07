@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, BookOpen, Clock, PenLine, Sparkles } from 'lucide-react';
+import { Plus, Search, Clock, PenLine, Sparkles } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { IllustrativeCard, IllustrativeHeader, IllustrativeContent, IllustrativeFooter } from '@/components/ui/illustrative-card';
 import { ViewToggle } from '@/components/ViewToggle';
@@ -11,6 +11,7 @@ import { getPosts, createPost } from '@/lib/cms-api';
 import type { SessionInfo } from '../../worker/types';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 export function DashboardPage() {
   const [posts, setPosts] = useState<SessionInfo[]>([]);
   const [view, setView] = useState<'grid' | 'table'>('grid');
@@ -27,23 +28,47 @@ export function DashboardPage() {
     setLoading(false);
   };
   const handleNewPost = async () => {
-    const post = await createPost();
-    if (post) navigate(`/editor/${post.id}`);
+    try {
+      const created = await createPost();
+      const nextId =
+        (created as unknown as { id?: string; sessionId?: string } | null)?.id ??
+        (created as unknown as { id?: string; sessionId?: string } | null)?.sessionId;
+      if (!nextId) {
+        toast.error('Could not create a new sketch. Please try again.');
+        return;
+      }
+      navigate(`/editor/${nextId}`);
+    } catch (e) {
+      console.error('Failed to create post:', e);
+      toast.error('Could not create a new sketch. Please try again.');
+    }
   };
-  const filteredPosts = posts.filter(p =>
-    p.title.toLowerCase().includes(search.toLowerCase()) ||
-    p.tags?.some(t => t.toLowerCase().includes(search.toLowerCase()))
-  );
+  const openPost = (postId: unknown) => {
+    if (typeof postId !== 'string' || !postId.trim()) {
+      console.error('Invalid post id:', postId);
+      toast.error('That sketch seems to be missing an ID. Please refresh.');
+      return;
+    }
+    navigate(`/editor/${postId}`);
+  };
+  const q = search.trim().toLowerCase();
+  const filteredPosts = posts.filter((p) => {
+    if (!q) return true;
+    const titleMatch = (p.title || '').toLowerCase().includes(q);
+    const summaryMatch = (p.summary || '').toLowerCase().includes(q);
+    const tagsMatch = (p.tags || []).some((t) => (t || '').toLowerCase().includes(q));
+    return titleMatch || summaryMatch || tagsMatch;
+  });
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
-      transition: { staggerChildren: 0.1 }
-    }
+      transition: { staggerChildren: 0.1 },
+    },
   };
   const itemVariants = {
     hidden: { y: 20, opacity: 0 },
-    visible: { y: 0, opacity: 1 }
+    visible: { y: 0, opacity: 1 },
   };
   return (
     <AppLayout container>
@@ -60,7 +85,10 @@ export function DashboardPage() {
             </div>
             <div className="flex items-center gap-3">
               <ViewToggle view={view} onChange={setView} />
-              <Button onClick={handleNewPost} className="sketch-button bg-accent text-accent-foreground font-bold px-8 h-12 text-lg">
+              <Button
+                onClick={handleNewPost}
+                className="sketch-button bg-accent text-accent-foreground font-bold px-8 h-12 text-lg"
+              >
                 <Plus className="w-5 h-5 mr-2" />
                 New Sketch
               </Button>
@@ -70,20 +98,24 @@ export function DashboardPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
             <Input
               placeholder="Search through your archives..."
-              className="pl-12 h-14 border-2 border-black sketch-shadow-sm bg-white text-lg font-hand"
+              className="pl-12 h-14 border-2 border-black sketch-shadow-sm bg-white text-lg font-hand transition-all hover:sketch-shadow-sm focus-visible:sketch-shadow-sm"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search posts"
             />
           </div>
           <AnimatePresence mode="wait">
             {loading ? (
               <div key="loading" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {[1, 2, 3, 4, 5, 6].map(i => (
-                  <div key={i} className="h-64 rounded-xl bg-muted/40 animate-pulse border-2 border-dashed border-black/10" />
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div
+                    key={i}
+                    className="h-64 rounded-xl bg-muted/40 animate-pulse border-2 border-dashed border-black/10"
+                  />
                 ))}
               </div>
             ) : filteredPosts.length === 0 ? (
-              <motion.div 
+              <motion.div
                 key="empty"
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -93,31 +125,52 @@ export function DashboardPage() {
                   <PenLine className="w-10 h-10 text-accent" />
                 </div>
                 <h3 className="text-3xl font-hand">The inkwell is dry...</h3>
-                <p className="text-muted-foreground text-lg max-w-sm mx-auto mt-2">Your sketchbook is waiting for its first spill. What will you create today?</p>
-                <Button variant="link" onClick={handleNewPost} className="mt-6 text-accent font-bold text-lg hover:underline underline-offset-8">
+                <p className="text-muted-foreground text-lg max-w-sm mx-auto mt-2">
+                  Your sketchbook is waiting for its first spill. What will you create today?
+                </p>
+                <Button
+                  variant="link"
+                  onClick={handleNewPost}
+                  className="mt-6 text-accent font-bold text-lg hover:underline underline-offset-8"
+                >
                   Start Your First Masterpiece
                 </Button>
               </motion.div>
             ) : view === 'grid' ? (
-              <motion.div 
+              <motion.div
                 key="grid"
                 variants={containerVariants}
                 initial="hidden"
                 animate="visible"
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
               >
-                {filteredPosts.map(post => (
+                {filteredPosts.map((post) => (
                   <motion.div key={post.id} variants={itemVariants} whileHover={{ scale: 1.02 }} className="h-full">
-                    <IllustrativeCard onClick={() => navigate(`/editor/${post.id}`)} className="cursor-pointer h-full flex flex-col group border-2">
+                    <IllustrativeCard
+                      onClick={() => openPost(post.id)}
+                      className="cursor-pointer h-full flex flex-col group border-2"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') openPost(post.id);
+                      }}
+                      aria-label={`Open sketch ${post.title || 'Untitled'}`}
+                    >
                       <IllustrativeHeader className="flex justify-between items-start pt-6">
-                        <h3 className="text-2xl font-hand line-clamp-1 group-hover:text-accent transition-colors">{post.title}</h3>
-                        <Badge variant={post.status === 'published' ? 'default' : 'secondary'} className="sketch-border sketch-shadow-sm text-[10px] uppercase font-bold py-1">
+                        <h3 className="text-2xl font-hand line-clamp-1 group-hover:text-accent transition-colors">
+                          {post.title}
+                        </h3>
+                        <Badge
+                          variant={post.status === 'published' ? 'default' : 'secondary'}
+                          className="sketch-border sketch-shadow-sm text-[10px] uppercase font-bold py-1"
+                        >
                           {post.status || 'draft'}
                         </Badge>
                       </IllustrativeHeader>
                       <IllustrativeContent className="flex-1 min-h-[100px] py-6">
                         <p className="text-sm text-muted-foreground line-clamp-4 leading-relaxed italic">
-                          {post.summary || "This page is blank, but it holds the weight of a million possibilities. Click to start writing."}
+                          {post.summary ||
+                            'This page is blank, but it holds the weight of a million possibilities. Click to start writing.'}
                         </p>
                       </IllustrativeContent>
                       <IllustrativeFooter className="py-4">
@@ -126,8 +179,14 @@ export function DashboardPage() {
                           Last edit: {format(post.lastActive, 'MMM d, yyyy')}
                         </div>
                         <div className="flex gap-1.5">
-                          {post.tags?.slice(0, 3).map(tag => (
-                            <Badge key={tag} variant="outline" className="text-[9px] py-0 px-2 font-bold bg-accent/5">{tag}</Badge>
+                          {post.tags?.slice(0, 3).map((tag) => (
+                            <Badge
+                              key={tag}
+                              variant="outline"
+                              className="text-[9px] py-0 px-2 font-bold bg-accent/5"
+                            >
+                              {tag}
+                            </Badge>
                           ))}
                         </div>
                       </IllustrativeFooter>
@@ -136,7 +195,7 @@ export function DashboardPage() {
                 ))}
               </motion.div>
             ) : (
-              <motion.div 
+              <motion.div
                 key="table"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -152,22 +211,30 @@ export function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPosts.map(post => (
+                    {filteredPosts.map((post) => (
                       <tr
                         key={post.id}
-                        onClick={() => navigate(`/editor/${post.id}`)}
+                        onClick={() => openPost(post.id)}
                         className="border-b border-black/10 hover:bg-accent/5 cursor-pointer transition-colors"
                       >
                         <td className="p-6 font-hand text-xl">{post.title}</td>
                         <td className="p-6">
-                          <Badge variant="outline" className="uppercase text-[10px] font-bold">{post.status || 'draft'}</Badge>
+                          <Badge variant="outline" className="uppercase text-[10px] font-bold">
+                            {post.status || 'draft'}
+                          </Badge>
                         </td>
                         <td className="p-6">
                           <div className="flex flex-wrap gap-1.5">
-                            {post.tags?.map(t => <Badge key={t} variant="outline" className="text-[10px] bg-muted/30">{t}</Badge>)}
+                            {post.tags?.map((t) => (
+                              <Badge key={t} variant="outline" className="text-[10px] bg-muted/30">
+                                {t}
+                              </Badge>
+                            ))}
                           </div>
                         </td>
-                        <td className="p-6 text-sm text-muted-foreground font-mono">{format(post.lastActive, 'MMM d, HH:mm')}</td>
+                        <td className="p-6 text-sm text-muted-foreground font-mono">
+                          {format(post.lastActive, 'MMM d, HH:mm')}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

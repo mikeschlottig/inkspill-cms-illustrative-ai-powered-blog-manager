@@ -5,12 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MuseSidebar } from '@/components/MuseSidebar';
-import { getPostContent, updatePostContent, updatePostMetadata } from '@/lib/cms-api';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { getPostContent, updatePostContent, updatePostMetadata, createPost } from '@/lib/cms-api';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { debounce } from '@/lib/utils';
+function formatLastSaved(d: Date): string {
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 export function EditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -18,6 +21,7 @@ export function EditorPage() {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   // Refs to avoid stale closure issues in debounced function
   const currentTitleRef = useRef(title);
   const currentContentRef = useRef(content);
@@ -25,36 +29,84 @@ export function EditorPage() {
     currentTitleRef.current = title;
     currentContentRef.current = content;
   }, [title, content]);
+  // Handle "/editor/new" routing by creating a new post and replacing the route.
+  useEffect(() => {
+    let cancelled = false;
+    async function ensureRealId() {
+      if (!id) return;
+      if (id !== 'new') return;
+      setLoading(true);
+      try {
+        const created = await createPost();
+        const nextId =
+          (created as unknown as { id?: string; sessionId?: string } | null)?.id ??
+          (created as unknown as { id?: string; sessionId?: string } | null)?.sessionId;
+        if (!nextId) {
+          toast.error('Failed to create a new sketch. Please try again.');
+          navigate('/', { replace: true });
+          return;
+        }
+        if (!cancelled) {
+          navigate(`/editor/${nextId}`, { replace: true });
+        }
+      } catch (e) {
+        console.error('Failed to create new sketch:', e);
+        toast.error('Failed to create a new sketch. Please try again.');
+        navigate('/', { replace: true });
+      }
+    }
+    ensureRealId();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, navigate]);
   const loadData = useCallback(async () => {
-    if (!id) return;
+    if (!id) {
+      toast.error('Missing sketch ID.');
+      navigate('/', { replace: true });
+      return;
+    }
+    if (id === 'new') return; // handled by effect above
     setLoading(true);
     try {
       const data = await getPostContent(id);
-      if (data) {
-        setTitle(data.title || '');
-        setContent(data.content || '');
+      if (!data) {
+        toast.error('That sketch could not be found. It may have been deleted.');
+        navigate('/', { replace: true });
+        return;
       }
+      setTitle(data.title || '');
+      setContent(data.content || '');
+      setLastSaved(null);
     } catch (err) {
-      toast.error("Failed to load sketch content");
+      console.error('Failed to load sketch content:', err);
+      toast.error('Failed to load sketch content');
+      navigate('/', { replace: true });
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, navigate]);
   useEffect(() => {
     loadData();
   }, [loadData]);
-  const saveAction = useCallback(async (t: string, c: string) => {
-    if (!id) return;
-    setSaving(true);
-    try {
-      await updatePostContent(id, { title: t, content: c });
-      await updatePostMetadata(id, { title: t });
-    } catch (err) {
-      console.error("Save error:", err);
-    } finally {
-      setSaving(false);
-    }
-  }, [id]);
+  const saveAction = useCallback(
+    async (t: string, c: string) => {
+      if (!id || id === 'new') return;
+      setSaving(true);
+      let succeeded = false;
+      try {
+        const ok1 = await updatePostContent(id, { title: t, content: c });
+        const ok2 = await updatePostMetadata(id, { title: t });
+        succeeded = Boolean(ok1 && ok2);
+      } catch (err) {
+        console.error('Save error:', err);
+      } finally {
+        setSaving(false);
+        if (succeeded) setLastSaved(new Date());
+      }
+    },
+    [id]
+  );
   // Using ref-wrapped debounce to prevent re-creation on every render
   const debouncedSave = useRef(debounce(saveAction, 1000)).current;
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -79,16 +131,26 @@ export function EditorPage() {
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="p-4 border-b-2 border-black dark:border-white flex items-center justify-between bg-white dark:bg-black z-10 shrink-0">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/')} className="sketch-button">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/')}
+              className="sketch-button"
+              aria-label="Back to Sketchbook"
+            >
               <ArrowLeft className="w-5 h-5" />
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <h2 className="text-2xl font-hand">The Canvas</h2>
-              {saving && (
-                <span className="text-[10px] uppercase font-bold text-muted-foreground animate-pulse ml-2">
-                  Saving...
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {saving ? (
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground animate-pulse">Saving...</span>
+                ) : lastSaved ? (
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground">
+                    Last saved at {formatLastSaved(lastSaved)}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -99,9 +161,12 @@ export function EditorPage() {
                   Meta
                 </Button>
               </SheetTrigger>
-              <SheetContent className="sketch-border">
+              <SheetContent className="sketch-border" aria-describedby="sketch-meta-description">
                 <SheetHeader>
                   <SheetTitle className="font-hand text-2xl">Sketch Metadata</SheetTitle>
+                  <SheetDescription id="sketch-meta-description">
+                    Adjust publishing status and tags. Changes are saved to your Sketchbook index.
+                  </SheetDescription>
                 </SheetHeader>
                 <div className="space-y-6 py-8">
                   <div className="space-y-2">
@@ -118,19 +183,32 @@ export function EditorPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Tags (Comma separated)</Label>
-                    <Input 
-                      placeholder="poetry, tech, thoughts" 
+                    <Input
+                      placeholder="poetry, tech, thoughts"
                       className="sketch-border"
-                      onBlur={(e) => updatePostMetadata(id!, { tags: e.target.value.split(',').map(t => t.trim()) })}
+                      onBlur={(e) =>
+                        updatePostMetadata(id!, {
+                          tags: e.target.value
+                            .split(',')
+                            .map((t) => t.trim())
+                            .filter(Boolean),
+                        })
+                      }
                     />
                   </div>
-                  <Button className="w-full sketch-button bg-accent text-accent-foreground font-bold" onClick={() => toast.success("Metadata updated")}>
+                  <Button
+                    className="w-full sketch-button bg-accent text-accent-foreground font-bold"
+                    onClick={() => toast.success('Metadata updated')}
+                  >
                     Confirm Changes
                   </Button>
                 </div>
               </SheetContent>
             </Sheet>
-            <Button className="sketch-button bg-secondary text-white font-bold" onClick={() => toast.info("Publishing interface coming soon.")}>
+            <Button
+              className="sketch-button bg-secondary text-white font-bold"
+              onClick={() => toast.info('Publishing interface coming soon.')}
+            >
               Publish
             </Button>
           </div>
@@ -142,6 +220,7 @@ export function EditorPage() {
               onChange={handleTitleChange}
               placeholder="Sketch Title..."
               className="text-5xl font-hand h-auto border-none focus-visible:ring-0 bg-transparent px-0 placeholder:opacity-30 dark:text-white"
+              aria-label="Sketch title"
             />
             <div className="w-full h-[1px] bg-black/5 dark:bg-white/5" />
             <Textarea
@@ -149,11 +228,12 @@ export function EditorPage() {
               onChange={handleContentChange}
               placeholder="Once upon a time in a digital sketchbook..."
               className="flex-1 min-h-[70vh] text-xl leading-relaxed border-none focus-visible:ring-0 bg-transparent px-0 resize-none placeholder:opacity-20 dark:text-white/80"
+              aria-label="Sketch content"
             />
           </div>
         </main>
       </div>
-      {id && <MuseSidebar sessionId={id} />}
+      {id && id !== 'new' ? <MuseSidebar sessionId={id} /> : null}
     </div>
   );
 }

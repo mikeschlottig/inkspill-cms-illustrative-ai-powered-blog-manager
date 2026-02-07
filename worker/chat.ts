@@ -8,7 +8,7 @@ export class ChatHandler {
   constructor(aiGatewayUrl: string, apiKey: string, model: string) {
     this.client = new OpenAI({
       baseURL: aiGatewayUrl,
-      apiKey: apiKey
+      apiKey: apiKey,
     });
     this.model = model;
   }
@@ -41,7 +41,7 @@ export class ChatHandler {
       tools: toolDefinitions,
       tool_choice: 'auto',
       max_tokens: 16000,
-      stream: false
+      stream: false,
     });
     return this.handleNonStreamResponse(completion, message, conversationHistory, documentTitle, documentContent);
   }
@@ -71,8 +71,8 @@ export class ChatHandler {
                 type: 'function',
                 function: {
                   name: deltaToolCall.function?.name || '',
-                  arguments: deltaToolCall.function?.arguments || ''
-                }
+                  arguments: deltaToolCall.function?.arguments || '',
+                },
               };
             } else {
               if (deltaToolCall.function?.name && !accumulatedToolCalls[i].function.name) {
@@ -109,16 +109,11 @@ export class ChatHandler {
     }
     if (!responseMessage.tool_calls) {
       return {
-        content: responseMessage.content || 'I apologize, but I encountered an issue.'
+        content: responseMessage.content || 'I apologize, but I encountered an issue.',
       };
     }
     const toolCalls = await this.executeToolCalls(responseMessage.tool_calls as ChatCompletionMessageFunctionToolCall[]);
-    const finalResponse = await this.generateToolResponse(
-      message,
-      conversationHistory,
-      responseMessage.tool_calls,
-      toolCalls
-    );
+    const finalResponse = await this.generateToolResponse(message, conversationHistory, responseMessage.tool_calls, toolCalls);
     return { content: finalResponse, toolCalls };
   }
   private async executeToolCalls(openAiToolCalls: ChatCompletionMessageFunctionToolCall[]): Promise<ToolCall[]> {
@@ -131,7 +126,7 @@ export class ChatHandler {
             id: tc.id,
             name: tc.function.name,
             arguments: args,
-            result
+            result,
           };
         } catch (error) {
           console.error(`Tool execution failed for ${tc.function.name}:`, error);
@@ -139,7 +134,9 @@ export class ChatHandler {
             id: tc.id,
             name: tc.function.name,
             arguments: {},
-            result: { error: `Failed to execute ${tc.function.name}: ${error instanceof Error ? error.message : 'Unknown error'}` }
+            result: {
+              error: `Failed to execute ${tc.function.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
           };
         }
       })
@@ -154,43 +151,55 @@ export class ChatHandler {
     const followUpCompletion = await this.client.chat.completions.create({
       model: this.model,
       messages: [
-        { role: 'system', content: 'You are a helpful AI assistant. Respond naturally to the tool results.' },
-        ...history.slice(-3).map(m => ({ role: m.role, content: m.content })),
+        {
+          role: 'system',
+          content:
+            'You are The Muse of InkSpill CMS. Speak warmly and clearly. Weave tool results into actionable guidance with a touch of poetic ink-and-parchment metaphor.',
+        },
+        ...history.slice(-3).map((m) => ({ role: m.role, content: m.content })),
         { role: 'user', content: userMessage },
         {
           role: 'assistant',
           content: null,
-          tool_calls: openAiToolCalls
+          tool_calls: openAiToolCalls,
         },
         ...toolResults.map((result, index) => ({
           role: 'tool' as const,
           content: JSON.stringify(result.result),
-          tool_call_id: openAiToolCalls[index]?.id || result.id
-        }))
+          tool_call_id: openAiToolCalls[index]?.id || result.id,
+        })),
       ],
-      max_tokens: 16000
+      max_tokens: 16000,
     });
     return followUpCompletion.choices[0]?.message?.content || 'Tool results processed successfully.';
   }
   private buildConversationMessages(userMessage: string, history: Message[], documentTitle?: string, documentContent?: string) {
-    const systemPrompt = `You are "The Muse", a whimsical and intelligent AI writing assistant for the InkSpill CMS. 
-The user is currently editing a sketch. 
-CURRENT SKETCH CONTEXT:
+    const systemPrompt = `You are **"The Muse"**, the resident ink-sprite and craft-savvy writing companion inside **InkSpill CMS**.
+Your job is to help the author shape their sketch like an illustrator: with bold lines, clear structure, and delightful detail.
+Speak with a supportive, slightly poetic voice—like quill on parchment—but keep advice practical and easy to apply.
+Use metaphors of:
+- ink, spills, stains, blotting paper
+- parchment, margins, notebook scribbles
+- quills, nibs, strokes, shading
+- digital sketching, layers, composition, and layout
+When giving SEO or optimization guidance, frame it as **creative spells** or **structural sketching**:
+- keywords = "ink pigments"
+- headings = "panel frames"
+- internal links = "stitched bindings"
+- meta description = "the label on the bottle"
+Always provide 3–7 concrete, specific suggestions.
+CURRENT SKETCH CONTEXT (your reference, not to be repeated verbatim unless asked):
 Title: ${documentTitle || 'Untitled'}
 Content: ${documentContent || 'Empty Canvas'}
-Your tone is supportive, slightly poetic, and highly creative. 
-When asked for SEO tags, improvements, or summaries, use the provided context to give specific, actionable advice. 
-You are an expert in storytelling, flow, and digital content optimization.`;
+Rules:
+- If the sketch is empty or short, propose 2–3 starter strokes (hooks, outline, first paragraph).
+- If asked for tags/keywords: give a prioritized list and explain why each fits.
+- If asked for tone: name it, then suggest small edits (word swaps, sentence rhythm).
+- Be kind; never scold. You are a lantern, not a judge.`;
     return [
-      {
-        role: 'system' as const,
-        content: systemPrompt
-      },
-      ...history.slice(-10).map(m => ({
-        role: m.role,
-        content: m.content
-      })),
-      { role: 'user' as const, content: userMessage }
+      { role: 'system' as const, content: systemPrompt },
+      ...history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content: userMessage },
     ];
   }
   updateModel(newModel: string): void {
