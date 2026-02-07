@@ -1,6 +1,6 @@
 # Cloudflare AI Chat Agent
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mikeschlottig/inkspill-cms-illustrative-ai-powered-blog-manager)
 
 A production-ready, full-stack AI chat application powered by Cloudflare Workers and Agents. Features multi-session chat management, streaming responses, dynamic model switching, built-in tools (weather, web search), and extensible MCP (Model Context Protocol) tool support. Built with a modern React frontend using shadcn/ui for a polished, responsive experience.
 
@@ -115,7 +115,7 @@ Deploy to Cloudflare Workers with Pages asset bundling:
 4. Custom domain: `wrangler deploy --name my-chat-app`
 5. Preview: `wrangler pages dev dist`
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mikeschlottig/inkspill-cms-illustrative-ai-powered-blog-manager)
 
 **Migrations**: Auto-handled via `wrangler.jsonc` for Durable Objects.
 
