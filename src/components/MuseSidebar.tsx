@@ -83,16 +83,22 @@ export function MuseSidebar({ sessionId, className }: MuseSidebarProps) {
     <aside className={cn('w-80 border-l-2 border-black dark:border-white bg-accent/5 flex flex-col h-full shrink-0', className)}>
       <div className="p-4 border-b-2 border-black dark:border-white flex items-center justify-between bg-white dark:bg-black">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-accent animate-pulse" />
+          <Sparkles className="w-5 h-5 text-accent animate-pulse" aria-hidden="true" />
           <h3 className="font-hand text-xl">The Muse</h3>
         </div>
         <div className="flex items-center gap-1">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
+          <div className="w-2 h-2 rounded-full bg-green-500 animate-ping" aria-hidden="true" />
           <span className="text-[10px] font-bold uppercase tracking-tighter opacity-50">Active</span>
         </div>
       </div>
       <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4 pb-4">
+        <div
+          className="space-y-4 pb-4"
+          aria-live="polite"
+          aria-relevant="additions text"
+          aria-atomic="false"
+          aria-label="Muse conversation"
+        >
           <AnimatePresence initial={false}>
             {messages.length === 0 && (
               <motion.div
@@ -123,33 +129,43 @@ export function MuseSidebar({ sessionId, className }: MuseSidebarProps) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="flex items-center gap-2 text-muted-foreground text-xs italic p-2"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
               >
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
                 The Muse is dipping her pen...
               </motion.div>
             )}
           </AnimatePresence>
+          {/* Dedicated SR-only live region to ensure "typing" state is announced reliably */}
+          <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {loading ? 'The Muse is typing.' : ''}
+          </div>
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
       <div className="p-4 bg-muted/20 border-t-2 border-black dark:border-white space-y-4">
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2" aria-label="Quick prompts">
           {ANALYTICS_PROMPTS.map((item) => {
             const isStickerLoading = Boolean(promptLoadingLabel && promptLoadingLabel === item.label);
             return (
               <button
                 key={item.label}
+                type="button"
                 onClick={() => handleSend(item.prompt, item.label)}
                 disabled={loading}
                 aria-busy={isStickerLoading}
+                aria-pressed={isStickerLoading}
+                aria-label={`Send prompt: ${item.label}`}
                 className={cn(
                   'flex items-center gap-2 text-[10px] px-2 py-1.5 bg-white dark:bg-black hover:bg-accent/10 rounded-lg border-2 border-black dark:border-white sketch-shadow-sm transition-all active:translate-x-0.5 active:translate-y-0.5 active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60 disabled:cursor-not-allowed'
                 )}
               >
                 {isStickerLoading ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
                 ) : (
-                  <item.icon className="w-3 h-3" />
+                  <item.icon className="w-3 h-3" aria-hidden="true" />
                 )}
                 <span className="font-bold">{isStickerLoading ? 'Pen dipping…' : item.label}</span>
               </button>
@@ -174,8 +190,9 @@ export function MuseSidebar({ sessionId, className }: MuseSidebarProps) {
             disabled={loading}
             className="absolute right-1 top-1/2 -translate-y-1/2 hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent"
             aria-label="Send message"
+            title="Send message"
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <Send className="w-4 h-4" aria-hidden="true" />}
           </Button>
         </div>
       </div>

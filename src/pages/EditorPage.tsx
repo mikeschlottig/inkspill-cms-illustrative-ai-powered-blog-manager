@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, Settings as SettingsIcon, Droplets, BadgeCheck } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { debounce } from '@/lib/utils';
+type StatusValue = 'draft' | 'published';
 function formatLastSaved(d: Date): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -55,7 +57,7 @@ export function EditorPage() {
         navigate('/', { replace: true });
       }
     }
-    ensureRealId();
+    void ensureRealId();
     return () => {
       cancelled = true;
     };
@@ -87,7 +89,7 @@ export function EditorPage() {
     }
   }, [id, navigate]);
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
   const saveAction = useCallback(
     async (t: string, c: string) => {
@@ -107,8 +109,16 @@ export function EditorPage() {
     },
     [id]
   );
-  // Using ref-wrapped debounce to prevent re-creation on every render
-  const debouncedSave = useRef(debounce(saveAction, 1000)).current;
+  // Keep a stable debounced function, but always call the latest saveAction.
+  const saveActionRef = useRef(saveAction);
+  useEffect(() => {
+    saveActionRef.current = saveAction;
+  }, [saveAction]);
+  const debouncedSave = useRef(
+    debounce((t: string, c: string) => {
+      void saveActionRef.current(t, c);
+    }, 1000)
+  ).current;
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setTitle(val);
@@ -121,8 +131,9 @@ export function EditorPage() {
   };
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-10 h-10 animate-spin text-accent" />
+      <div className="h-screen flex items-center justify-center bg-background" aria-busy="true" aria-live="polite">
+        <Loader2 className="w-10 h-10 animate-spin text-accent" aria-hidden="true" />
+        <span className="sr-only">Loading sketch…</span>
       </div>
     );
   }
@@ -137,27 +148,73 @@ export function EditorPage() {
               onClick={() => navigate('/')}
               className="sketch-button"
               aria-label="Back to Sketchbook"
+              title="Back to Sketchbook"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-5 h-5" aria-hidden="true" />
             </Button>
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-hand">The Canvas</h2>
               <div className="flex items-center gap-2">
-                {saving ? (
-                  <span className="text-[10px] uppercase font-bold text-muted-foreground animate-pulse">Saving...</span>
-                ) : lastSaved ? (
-                  <span className="text-[10px] uppercase font-bold text-muted-foreground">
-                    Last saved at {formatLastSaved(lastSaved)}
-                  </span>
-                ) : null}
+                <AnimatePresence mode="wait" initial={false}>
+                  {saving ? (
+                    <motion.div
+                      key="saving"
+                      initial={{ opacity: 0, y: -2 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 2 }}
+                      className="flex items-center gap-2"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
+                      <motion.span
+                        animate={{ scale: [1, 1.15, 1], opacity: [0.9, 1, 0.9] }}
+                        transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
+                        className="inline-flex"
+                        aria-hidden="true"
+                      >
+                        <Droplets className="w-4 h-4 text-accent" />
+                      </motion.span>
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground">Ink drying… saving</span>
+                    </motion.div>
+                  ) : lastSaved ? (
+                    <motion.div
+                      key={lastSaved.getTime()}
+                      initial={{ opacity: 0, y: -2, filter: 'blur(1px)' }}
+                      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex items-center gap-2"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
+                      <motion.span
+                        initial={{ scale: 0.9 }}
+                        animate={{ scale: [0.95, 1.08, 1] }}
+                        transition={{ duration: 0.35, ease: 'easeOut' }}
+                        className="inline-flex"
+                        aria-hidden="true"
+                      >
+                        <BadgeCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.25)]" />
+                      </motion.span>
+                      <span className="text-[10px] uppercase font-bold text-emerald-700/90 dark:text-emerald-300/90">
+                        Ink stamped at {formatLastSaved(lastSaved)}
+                      </span>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" className="sketch-button bg-white dark:bg-black">
-                  <SettingsIcon className="w-4 h-4 mr-2" />
+                <Button
+                  variant="outline"
+                  className="sketch-button bg-white dark:bg-black"
+                  aria-label="Open sketch metadata"
+                  title="Open metadata"
+                >
+                  <SettingsIcon className="w-4 h-4 mr-2" aria-hidden="true" />
                   Meta
                 </Button>
               </SheetTrigger>
@@ -170,9 +227,17 @@ export function EditorPage() {
                 </SheetHeader>
                 <div className="space-y-6 py-8">
                   <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select onValueChange={(val) => updatePostMetadata(id!, { status: val as any })}>
-                      <SelectTrigger className="sketch-border">
+                    <Label htmlFor="meta-status">Status</Label>
+                    <Select
+                      onValueChange={(val) => {
+                        if (!id) return;
+                        void updatePostMetadata(id, { status: val as StatusValue }).catch((e) => {
+                          console.error('Failed to update status:', e);
+                          toast.error('Could not update status. Please try again.');
+                        });
+                      }}
+                    >
+                      <SelectTrigger id="meta-status" className="sketch-border" aria-label="Select publishing status">
                         <SelectValue placeholder="Select Status" />
                       </SelectTrigger>
                       <SelectContent>
@@ -182,23 +247,33 @@ export function EditorPage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Tags (Comma separated)</Label>
+                    <Label htmlFor="meta-tags">Tags (comma separated)</Label>
                     <Input
+                      id="meta-tags"
                       placeholder="poetry, tech, thoughts"
                       className="sketch-border"
-                      onBlur={(e) =>
-                        updatePostMetadata(id!, {
+                      aria-label="Tags, comma separated"
+                      onBlur={(e) => {
+                        if (!id) return;
+                        void updatePostMetadata(id, {
                           tags: e.target.value
                             .split(',')
                             .map((t) => t.trim())
                             .filter(Boolean),
-                        })
-                      }
+                        }).catch((err) => {
+                          console.error('Failed to update tags:', err);
+                          toast.error('Could not update tags. Please try again.');
+                        });
+                      }}
                     />
+                    <p className="text-[10px] text-muted-foreground">
+                      Tip: keep tags short—like labels on little ink bottles.
+                    </p>
                   </div>
                   <Button
                     className="w-full sketch-button bg-accent text-accent-foreground font-bold"
                     onClick={() => toast.success('Metadata updated')}
+                    aria-label="Confirm metadata changes"
                   >
                     Confirm Changes
                   </Button>
@@ -208,6 +283,8 @@ export function EditorPage() {
             <Button
               className="sketch-button bg-secondary text-white font-bold"
               onClick={() => toast.info('Publishing interface coming soon.')}
+              aria-label="Publish sketch"
+              title="Publish"
             >
               Publish
             </Button>
